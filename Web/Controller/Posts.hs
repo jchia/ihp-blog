@@ -1,5 +1,6 @@
 module Web.Controller.Posts where
 
+import qualified Text.MMark as MMark
 import Web.Controller.Prelude
 import Web.View.Posts.Index
 import Web.View.Posts.New
@@ -8,7 +9,7 @@ import Web.View.Posts.Show
 
 instance Controller PostsController where
     action PostsAction = do
-        posts <- query @Post |> fetch
+        posts <- query @Post |> orderByDesc #createdAt |> fetch
         render IndexView { .. }
 
     action NewPostAction = do
@@ -16,7 +17,7 @@ instance Controller PostsController where
         render NewView { .. }
 
     action ShowPostAction { postId } = do
-        post <- fetch postId
+        post <- fetch postId >>= pure . modify #comments (orderByDesc #createdAt) >>= fetchRelated #comments
         render ShowView { .. }
 
     action EditPostAction { postId } = do
@@ -39,7 +40,7 @@ instance Controller PostsController where
         post
             |> buildPost
             |> ifValid \case
-                Left post -> render NewView { .. } 
+                Left post -> render NewView { .. }
                 Right post -> do
                     post <- post |> createRecord
                     setSuccessMessage "Post created"
@@ -53,3 +54,11 @@ instance Controller PostsController where
 
 buildPost post = post
     |> fill @["title","body"]
+    |> validateField #title nonEmpty
+    |> validateField #body nonEmpty
+    |> validateField #body validMarkdown
+
+validMarkdown :: Text -> ValidatorResult
+validMarkdown text = case MMark.parse "" text of
+  Left _ -> Failure "Invalid markdown"
+  Right _ -> Success
